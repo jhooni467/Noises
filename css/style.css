@@ -1,1 +1,35 @@
-
+:root { --fg:#f1e6d0; --accent:#d4483b; --bg:rgba(10,6,14,.82); }
+* { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+html, body { margin:0; height:100%; overflow:hidden; background:#0a060e; color:var(--fg);
+  font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; touch-action:none; user-select:none; -webkit-user-select:none; }
+#renderCanvas { position:fixed; inset:0; width:100%; height:100%; outline:none; display:block; }
+.hidden { display:none !important; }
+#crosshair { position:fixed; left:50%; top:50%; width:6px; height:6px; margin:-3px 0 0 -3px; border-radius:50%;
+  background:rgba(255,255,255,.7); pointer-events:none; }
+#prompt, #message { position:fixed; left:50%; transform:translateX(-50%); padding:8px 16px; border-radius:8px;
+  background:var(--bg); pointer-events:none; text-align:center; max-width:90vw; }
+#prompt { top:56%; }
+#message { bottom:calc(14% + env(safe-area-inset-bottom)); }
+#fps { position:fixed; top:calc(8px + env(safe-area-inset-top)); left:10px; font:12px monospace; opacity:.6; pointer-events:none; }
+#pause-btn { position:fixed; top:calc(8px + env(safe-area-inset-top)); right:10px; width:40px; height:40px; border:0;
+  border-radius:8px; background:var(--bg); color:var(--fg); font-weight:700; display:none; }
+#overlay { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(5,3,8,.78); z-index:10; }
+.card { text-align:center; padding:28px 32px; border:1px solid #3a2a40; border-radius:12px; background:#140c1a; max-width:92vw; }
+.card h1 { margin:0 0 6px; letter-spacing:.35em; color:var(--accent); }
+.card ul { list-style:none; padding:0; margin:14px 0; line-height:1.6; }
+.card button, #btn-interact { font-size:1rem; padding:10px 28px; border:0; border-radius:8px; background:var(--accent); color:#fff; font-weight:600; }
+#touch { display:none; }
+body.touch #touch { display:block; }
+body.touch #pause-btn { display:block; }
+body.touch .controls-desktop, body:not(.touch) .controls-touch { display:none; }
+#look-zone { position:fixed; top:0; right:0; width:55%; height:100%; }
+#joy { position:fixed; left:calc(24px + env(safe-area-inset-left)); bottom:calc(28px + env(safe-area-inset-bottom)); width:120px; height:120px;
+  border-radius:50%; background:rgba(255,255,255,.08); border:2px solid rgba(255,255,255,.25); }
+#joy-knob { position:absolute; left:40px; top:40px; width:40px; height:40px; border-radius:50%; background:rgba(255,255,255,.45); }
+#btn-interact { position:fixed; right:calc(24px + env(safe-area-inset-right)); bottom:calc(40px + env(safe-area-inset-bottom)); width:84px; height:84px; border-radius:50%; padding:0; opacity:.85; }
+#rotate { display:none; position:fixed; inset:0; z-index:50; background:#0a060e; align-items:center; justify-content:center; text-align:center; padding:24px; font-size:1.3rem; line-height:1.6; }
+#rotate small { font-size:.9rem; opacity:.7; }
+@media (orientation:portrait) { body.touch #rotate { display:flex; } }
+@media (orientation:landscape) and (max-height:520px) {
+  .card { padding:14px 22px; } .card h1 { font-size:1.4rem; } .card ul { margin:8px 0; line-height:1.4; font-size:.9rem; }
+}
