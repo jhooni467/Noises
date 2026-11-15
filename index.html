@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>NOISES</title>
+  <link rel="stylesheet" href="css/style.css">
+  <!-- Algunos visores/iframes bloquean la API de mandos (permissions policy); se neutraliza el error. -->
+  <script>
+    try {
+      if (navigator.getGamepads) {
+        var _gp = navigator.getGamepads.bind(navigator);
+        navigator.getGamepads = function () { try { return _gp(); } catch (e) { return []; } };
+      }
+    } catch (e) { /* ignorado */ }
+  </script>
+  <!-- Versión fijada de Babylon.js (UMD). Para cambiarla, editar solo esta línea. -->
+  <script src="https://cdn.jsdelivr.net/npm/babylonjs@7.54.3/babylon.js"></script>
+</head>
+<body>
+  <canvas id="renderCanvas"></canvas>
+  <div id="crosshair"></div>
+  <div id="prompt" class="hidden"></div>
+  <div id="message" class="hidden"></div>
+  <div id="fps"></div>
+  <button id="pause-btn" aria-label="Pausa">II</button>
+
+  <div id="touch">
+    <div id="look-zone"></div>
+    <div id="joy"><div id="joy-knob"></div></div>
+    <button id="btn-interact">Usar</button>
+  </div>
+
+  <div id="rotate"><div>&#8635;<br>Gira el dispositivo<br><small>NOISES se juega en horizontal</small></div></div>
+
+  <div id="overlay">
+    <div class="card">
+      <h1 id="ov-title">NOISES</h1>
+      <p id="ov-text">Base técnica · Etapa 1 (escenario de pruebas)</p>
+      <ul class="controls-desktop">
+        <li><b>WASD</b> mover · <b>Shift</b> correr</li>
+        <li><b>Ratón</b> mirar · <b>E</b> interactuar</li>
+        <li><b>ESC</b> pausa</li>
+      </ul>
+      <ul class="controls-touch">
+        <li>Joystick izquierdo: mover</li>
+        <li>Arrastrar a la derecha: mirar</li>
+        <li>Botón «Usar»: interactuar</li>
+      </ul>
+      <button id="play-btn">Jugar</button>
+    </div>
+  </div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
