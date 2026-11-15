@@ -1,0 +1,555 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>NOISES</title>
+  <style>
+:root { --fg:#f1e6d0; --accent:#d4483b; --bg:rgba(10,6,14,.82); }
+* { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+html, body { margin:0; height:100%; overflow:hidden; background:#0a060e; color:var(--fg);
+  font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; touch-action:none; user-select:none; -webkit-user-select:none; }
+#renderCanvas { position:fixed; inset:0; width:100%; height:100%; outline:none; display:block; }
+.hidden { display:none !important; }
+#crosshair { position:fixed; left:50%; top:50%; width:6px; height:6px; margin:-3px 0 0 -3px; border-radius:50%;
+  background:rgba(255,255,255,.7); pointer-events:none; }
+#prompt, #message { position:fixed; left:50%; transform:translateX(-50%); padding:8px 16px; border-radius:8px;
+  background:var(--bg); pointer-events:none; text-align:center; max-width:90vw; }
+#prompt { top:56%; }
+#message { bottom:calc(14% + env(safe-area-inset-bottom)); }
+#fps { position:fixed; top:calc(8px + env(safe-area-inset-top)); left:10px; font:12px monospace; opacity:.6; pointer-events:none; }
+#pause-btn { position:fixed; top:calc(8px + env(safe-area-inset-top)); right:10px; width:40px; height:40px; border:0;
+  border-radius:8px; background:var(--bg); color:var(--fg); font-weight:700; display:none; }
+#overlay { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(5,3,8,.78); z-index:10; }
+.card { text-align:center; padding:28px 32px; border:1px solid #3a2a40; border-radius:12px; background:#140c1a; max-width:92vw; }
+.card h1 { margin:0 0 6px; letter-spacing:.35em; color:var(--accent); }
+.card ul { list-style:none; padding:0; margin:14px 0; line-height:1.6; }
+.card button, #btn-interact { font-size:1rem; padding:10px 28px; border:0; border-radius:8px; background:var(--accent); color:#fff; font-weight:600; }
+#touch { display:none; }
+body.touch #touch { display:block; }
+body.touch #pause-btn { display:block; }
+body.touch .controls-desktop, body:not(.touch) .controls-touch { display:none; }
+#look-zone { position:fixed; top:0; right:0; width:55%; height:100%; }
+#joy { position:fixed; left:calc(24px + env(safe-area-inset-left)); bottom:calc(28px + env(safe-area-inset-bottom)); width:120px; height:120px;
+  border-radius:50%; background:rgba(255,255,255,.08); border:2px solid rgba(255,255,255,.25); }
+#joy-knob { position:absolute; left:40px; top:40px; width:40px; height:40px; border-radius:50%; background:rgba(255,255,255,.45); }
+#btn-interact { position:fixed; right:calc(24px + env(safe-area-inset-right)); bottom:calc(40px + env(safe-area-inset-bottom)); width:84px; height:84px; border-radius:50%; padding:0; opacity:.85; }
+#rotate { display:none; position:fixed; inset:0; z-index:50; background:#0a060e; align-items:center; justify-content:center; text-align:center; padding:24px; font-size:1.3rem; line-height:1.6; }
+#rotate small { font-size:.9rem; opacity:.7; }
+@media (orientation:portrait) { body.touch #rotate { display:flex; } }
+@media (orientation:landscape) and (max-height:520px) {
+  .card { padding:14px 22px; } .card h1 { font-size:1.4rem; } .card ul { margin:8px 0; line-height:1.4; font-size:.9rem; }
+}
+
+</style>
+  <!-- Algunos visores/iframes bloquean la API de mandos (permissions policy); se neutraliza el error. -->
+  <script>
+    try {
+      if (navigator.getGamepads) {
+        var _gp = navigator.getGamepads.bind(navigator);
+        navigator.getGamepads = function () { try { return _gp(); } catch (e) { return []; } };
+      }
+    } catch (e) { /* ignorado */ }
+  </script>
+  <!-- Versión fijada de Babylon.js (UMD). Para cambiarla, editar solo esta línea. -->
+  <script src="https://cdn.jsdelivr.net/npm/babylonjs@7.54.3/babylon.js"></script>
+</head>
+<body>
+  <canvas id="renderCanvas"></canvas>
+  <div id="crosshair"></div>
+  <div id="prompt" class="hidden"></div>
+  <div id="message" class="hidden"></div>
+  <div id="fps"></div>
+  <button id="pause-btn" aria-label="Pausa">II</button>
+
+  <div id="touch">
+    <div id="look-zone"></div>
+    <div id="joy"><div id="joy-knob"></div></div>
+    <button id="btn-interact">Usar</button>
+  </div>
+
+  <div id="rotate"><div>&#8635;<br>Gira el dispositivo<br><small>NOISES se juega en horizontal</small></div></div>
+
+  <div id="overlay">
+    <div class="card">
+      <h1 id="ov-title">NOISES</h1>
+      <p id="ov-text">Base técnica · Etapa 1 (escenario de pruebas)</p>
+      <ul class="controls-desktop">
+        <li><b>WASD</b> mover · <b>Shift</b> correr</li>
+        <li><b>Ratón</b> mirar · <b>E</b> interactuar</li>
+        <li><b>ESC</b> pausa</li>
+      </ul>
+      <ul class="controls-touch">
+        <li>Joystick izquierdo: mover</li>
+        <li>Arrastrar a la derecha: mirar</li>
+        <li>Botón «Usar»: interactuar</li>
+      </ul>
+      <button id="play-btn">Jugar</button>
+    </div>
+  </div>
+
+  <script>
+(function(){
+"use strict";
+// ---- core/config ----
+// Configuración centralizada de NOISES. Los valores se leen desde aquí; ningún sistema define números "mágicos" propios.
+const CONFIG = {
+  render: { useWebGPU: false, maxPixelRatio: 2, antialias: true }, // WebGPU también con ?webgpu=1
+  player: { walkSpeed: 2.6, runSpeed: 4.4, eyeHeight: 1.7, bodyHeight: 1.8, radius: 0.35, fallSpeed: 7 },
+  camera: { fovDeg: 75, mouseSensitivity: 0.0022, touchSensitivity: 0.005, pitchLimit: 1.45, invertY: false },
+  interaction: { range: 2.6, checkInterval: 0.06 },
+  audio: { master: 0.8, music: 0.6, sfx: 0.9, ambient: 0.7 },
+  debug: { showFps: true },
+};
+
+// ---- core/events ----
+// Bus de eventos mínimo para desacoplar sistemas (futuro: puzzles, enemigos, diálogos, guardado...).
+class EventBus {
+  constructor() { this._h = new Map(); }
+  on(name, fn) { (this._h.get(name) ?? this._h.set(name, new Set()).get(name)).add(fn); return () => this.off(name, fn); }
+  off(name, fn) { this._h.get(name)?.delete(fn); }
+  emit(name, data) { this._h.get(name)?.forEach((fn) => fn(data)); }
+}
+
+// ---- audio/audio ----
+// Audio: buses de volumen independientes (master / music / sfx / ambient) sobre Web Audio.
+// Pendiente (etapas futuras): carga de archivos desde assets/audio y audio espacial 3D.
+class AudioManager {
+  constructor(volumes) { this.volumes = { ...volumes }; this.ctx = null; this.buses = {}; }
+
+  // Debe llamarse dentro de un gesto del usuario (clic/toque), por política de los navegadores.
+  unlock() {
+    if (!this.ctx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      this.ctx = new AC();
+      this.master = this.ctx.createGain();
+      this.master.connect(this.ctx.destination);
+      for (const n of ['music', 'sfx', 'ambient']) {
+        const g = this.ctx.createGain();
+        g.connect(this.master);
+        this.buses[n] = g;
+      }
+      this._apply();
+    }
+    if (this.ctx.state === 'suspended') this.ctx.resume();
+  }
+
+  setVolume(name, v) { this.volumes[name] = v; this._apply(); }
+
+  _apply() {
+    if (!this.ctx) return;
+    this.master.gain.value = this.volumes.master;
+    for (const n in this.buses) this.buses[n].gain.value = this.volumes[n];
+  }
+
+  // Sonido provisional generado por código (sin archivos).
+  blip(freq = 440, dur = 0.12, bus = 'sfx') {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const o = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    o.type = 'square';
+    o.frequency.value = freq;
+    g.gain.setValueAtTime(0.2, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    o.connect(g);
+    g.connect(this.buses[bus]);
+    o.start(t);
+    o.stop(t + dur);
+  }
+}
+
+// ---- ui/ui ----
+// Interfaz DOM: superposición de inicio/pausa, indicación de interacción, mensajes y FPS.
+class UI {
+  constructor(isTouch) {
+    const $ = (id) => document.getElementById(id);
+    this.isTouch = isTouch;
+    this.overlay = $('overlay'); this.title = $('ov-title'); this.text = $('ov-text');
+    this.playBtn = $('play-btn'); this.pauseBtn = $('pause-btn');
+    this.promptEl = $('prompt'); this.messageEl = $('message'); this.fpsEl = $('fps');
+    this._msgTimer = 0;
+  }
+  onPlay(cb) { this.playBtn.addEventListener('click', cb); }
+  onPauseButton(cb) { this.pauseBtn.addEventListener('click', cb); }
+  showOverlay(title, text, button = 'Jugar') {
+    this.title.textContent = title; this.text.textContent = text; this.playBtn.textContent = button;
+    this.overlay.classList.remove('hidden');
+  }
+  hideOverlay() { this.overlay.classList.add('hidden'); }
+  setPrompt(text) {
+    this.promptEl.textContent = text ? (this.isTouch ? text : `[E] ${text}`) : '';
+    this.promptEl.classList.toggle('hidden', !text);
+  }
+  message(text, ms = 2500) {
+    this.messageEl.textContent = text;
+    this.messageEl.classList.remove('hidden');
+    clearTimeout(this._msgTimer);
+    this._msgTimer = setTimeout(() => this.messageEl.classList.add('hidden'), ms);
+  }
+  setFps(n) { this.fpsEl.textContent = `${n} FPS`; }
+  fatal(msg) { this.showOverlay('Error', msg, 'Recargar'); this.playBtn.onclick = () => location.reload(); }
+}
+
+// ---- controls/input ----
+// Entrada unificada: teclado + ratón (pointer lock) en PC, joystick + arrastre táctil en móviles/tablets.
+// El resto del juego solo consulta getMove() / consumeLook() y escucha eventos del bus.
+const KEYS = { KeyW: 'f', ArrowUp: 'f', KeyS: 'b', ArrowDown: 'b', KeyA: 'l', ArrowLeft: 'l', KeyD: 'r', ArrowRight: 'r' };
+
+class Input {
+  constructor(canvas, bus, cfg) {
+    this.canvas = canvas; this.bus = bus; this.cfg = cfg;
+    this.isTouch = window.matchMedia('(pointer: coarse)').matches;
+    this.enabled = false; this.running = false;
+    this.keys = new Set(); this.joy = { x: 0, y: 0 }; this.lookX = 0; this.lookY = 0;
+    this._initKeyboard(); this._initMouse();
+    if (this.isTouch) this._initTouch();
+  }
+
+  setEnabled(on) {
+    this.enabled = on;
+    if (!on) { this.keys.clear(); this.running = false; this.joy.x = this.joy.y = 0; this.lookX = this.lookY = 0; }
+  }
+
+  lockPointer() { try { Promise.resolve(this.canvas.requestPointerLock?.()).catch(() => {}); } catch { /* ignorado */ } }
+  unlockPointer() { if (document.pointerLockElement) document.exitPointerLock(); }
+
+  getMove() {
+    let x = this.joy.x, y = this.joy.y;
+    if (this.keys.has('r')) x += 1;
+    if (this.keys.has('l')) x -= 1;
+    if (this.keys.has('f')) y += 1;
+    if (this.keys.has('b')) y -= 1;
+    const len = Math.hypot(x, y);
+    if (len > 1) { x /= len; y /= len; }
+    return { x, y };
+  }
+
+  // Devuelve el giro acumulado en radianes desde la última llamada.
+  consumeLook() {
+    const r = { x: this.lookX, y: this.lookY * (this.cfg.camera.invertY ? -1 : 1) };
+    this.lookX = this.lookY = 0;
+    return r;
+  }
+
+  _initKeyboard() {
+    window.addEventListener('keydown', (e) => {
+      if (!this.enabled) return;
+      if (KEYS[e.code]) { this.keys.add(KEYS[e.code]); e.preventDefault(); }
+      else if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') this.running = true;
+      else if (e.code === 'KeyE' && !e.repeat) this.bus.emit('input:interact');
+    });
+    window.addEventListener('keyup', (e) => {
+      if (KEYS[e.code]) this.keys.delete(KEYS[e.code]);
+      else if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') this.running = false;
+    });
+  }
+
+  _initMouse() {
+    document.addEventListener('pointerlockchange', () =>
+      this.bus.emit(document.pointerLockElement === this.canvas ? 'pointer:locked' : 'pointer:unlocked'));
+    document.addEventListener('mousemove', (e) => {
+      if (!this.enabled || document.pointerLockElement !== this.canvas) return;
+      this.lookX += e.movementX * this.cfg.camera.mouseSensitivity;
+      this.lookY += e.movementY * this.cfg.camera.mouseSensitivity;
+    });
+    this.canvas.addEventListener('mousedown', () => {
+      if (this.enabled && document.pointerLockElement === this.canvas) this.bus.emit('input:interact');
+    });
+  }
+
+  _initTouch() {
+    document.body.classList.add('touch');
+    const $ = (id) => document.getElementById(id);
+    const joy = $('joy'), knob = $('joy-knob'), look = $('look-zone'), btn = $('btn-interact');
+    const R = 44, opts = { passive: false };
+    let joyId = null, lookId = null, lx = 0, ly = 0;
+    const find = (e, id) => [...e.changedTouches].find((t) => t.identifier === id);
+
+    const setJoy = (t) => {
+      const r = joy.getBoundingClientRect();
+      let dx = t.clientX - (r.left + r.width / 2), dy = t.clientY - (r.top + r.height / 2);
+      const d = Math.hypot(dx, dy);
+      if (d > R) { dx *= R / d; dy *= R / d; }
+      knob.style.transform = `translate(${dx}px,${dy}px)`;
+      if (this.enabled) { this.joy.x = dx / R; this.joy.y = -dy / R; }
+    };
+    const endJoy = () => { joyId = null; knob.style.transform = ''; this.joy.x = this.joy.y = 0; };
+
+    joy.addEventListener('touchstart', (e) => { e.preventDefault(); if (joyId === null) { const t = e.changedTouches[0]; joyId = t.identifier; setJoy(t); } }, opts);
+    joy.addEventListener('touchmove', (e) => { e.preventDefault(); const t = find(e, joyId); if (t) setJoy(t); }, opts);
+    for (const ev of ['touchend', 'touchcancel']) joy.addEventListener(ev, (e) => { if (find(e, joyId)) endJoy(); }, opts);
+
+    look.addEventListener('touchstart', (e) => { e.preventDefault(); if (lookId === null) { const t = e.changedTouches[0]; lookId = t.identifier; lx = t.clientX; ly = t.clientY; } }, opts);
+    look.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      const t = find(e, lookId);
+      if (!t) return;
+      if (this.enabled) { this.lookX += (t.clientX - lx) * this.cfg.camera.touchSensitivity; this.lookY += (t.clientY - ly) * this.cfg.camera.touchSensitivity; }
+      lx = t.clientX; ly = t.clientY;
+    }, opts);
+    for (const ev of ['touchend', 'touchcancel']) look.addEventListener(ev, (e) => { if (find(e, lookId)) lookId = null; }, opts);
+
+    btn.addEventListener('touchstart', (e) => { e.preventDefault(); if (this.enabled) this.bus.emit('input:interact'); }, opts);
+  }
+}
+
+// ---- player/player ----
+// Jugador en primera persona. Usa la cámara de Babylon con colisiones (elipsoide) y gravedad;
+// el movimiento se aplica vía cameraDirection para que el motor resuelva colisiones y suelo.
+class Player {
+  constructor(scene, input, cfg) {
+    const B = BABYLON, p = cfg.player;
+    this.scene = scene; this.input = input; this.cfg = cfg;
+    const cam = (this.camera = new B.UniversalCamera('playerCam', new B.Vector3(0, p.eyeHeight, 0), scene));
+    cam.inputs.clear();          // la entrada la gestiona src/controls/input.js
+    cam.inertia = 0;             // sin deslizamiento: el desplazamiento se calcula cada frame
+    cam.minZ = 0.05; cam.maxZ = 100;
+    cam.fov = B.Tools.ToRadians(cfg.camera.fovDeg);
+    cam.checkCollisions = true; cam.applyGravity = true;
+    cam.ellipsoid = new B.Vector3(p.radius, p.bodyHeight / 2, p.radius);
+    cam.ellipsoidOffset = new B.Vector3(0, -(p.eyeHeight - p.bodyHeight / 2), 0);
+    scene.activeCamera = cam;
+    scene.collisionsEnabled = true;
+    scene.gravity = new B.Vector3(0, 0, 0);
+  }
+
+  setFov(deg) { this.camera.fov = BABYLON.Tools.ToRadians(deg); }
+
+  teleport(pos, yaw = 0) {
+    this.camera.position.set(pos.x, pos.y + this.cfg.player.eyeHeight + 0.05, pos.z);
+    this.camera.rotation.set(0, yaw, 0);
+  }
+
+  update(dt) {
+    const cam = this.camera, p = this.cfg.player, lim = this.cfg.camera.pitchLimit;
+    const look = this.input.consumeLook();
+    cam.rotation.y += look.x;
+    cam.rotation.x = Math.max(-lim, Math.min(lim, cam.rotation.x + look.y));
+
+    const m = this.input.getMove();
+    const speed = (this.input.running ? p.runSpeed : p.walkSpeed) * dt;
+    const s = Math.sin(cam.rotation.y), c = Math.cos(cam.rotation.y);
+    cam.cameraDirection.x += (s * m.y + c * m.x) * speed;
+    cam.cameraDirection.z += (c * m.y - s * m.x) * speed;
+
+    // Babylon aplica la gravedad por frame (no por segundo): se escala con dt para ser independiente de los FPS.
+    this.scene.gravity.y = -p.fallSpeed * dt;
+  }
+}
+
+// ---- interaction/interactions ----
+// Sistema de interacción: lanza un rayo desde el centro de la cámara y detecta el primer objeto interactuable.
+// Un "interactuable" es un objeto { id, prompt, onInteract(ctx), enabled? } asociado a una malla.
+// Las paredes bloquean el rayo, así que no se puede interactuar a través de ellas.
+class InteractionSystem {
+  constructor(scene, camera, bus, cfg) {
+    this.scene = scene; this.camera = camera; this.bus = bus; this.cfg = cfg;
+    this.target = null; this._acc = 0;
+  }
+
+  register(mesh, def) {
+    mesh.isPickable = true;
+    mesh.metadata = { ...(mesh.metadata || {}), interactable: def };
+    return def;
+  }
+
+  update(dt) {
+    this._acc += dt;
+    if (this._acc < this.cfg.checkInterval) return;
+    this._acc = 0;
+    const ray = this.camera.getForwardRay(this.cfg.range);
+    const hit = this.scene.pickWithRay(ray, (m) => m.isPickable && m.isEnabled());
+    const def = hit?.hit ? hit.pickedMesh.metadata?.interactable : null;
+    const next = def && def.enabled !== false ? def : null;
+    if (next !== this.target) {
+      this.target = next;
+      this.bus.emit('interact:target', next);
+    }
+  }
+
+  interact() {
+    const t = this.target;
+    if (!t) return;
+    t.onInteract?.({ bus: this.bus });
+    this.bus.emit('interact:done', t);
+  }
+}
+
+// ---- scenes/testRoom ----
+// ESCENARIO PROVISIONAL DE PRUEBAS. No es el circo definitivo: solo geometría simple para validar
+// movimiento, cámara, colisiones, iluminación e interacción.
+function createTestRoom(scene, { interactions, audio, ui }) {
+  const B = BABYLON;
+  const bg = new B.Color3(0.05, 0.035, 0.07);
+  scene.clearColor = new B.Color4(bg.r, bg.g, bg.b, 1);
+  scene.fogMode = B.Scene.FOGMODE_EXP2; scene.fogDensity = 0.03; scene.fogColor = bg;
+
+  const mat = (name, hex, emissive) => {
+    const m = new B.StandardMaterial(name, scene);
+    m.diffuseColor = B.Color3.FromHexString(hex);
+    m.specularColor = B.Color3.Black();
+    if (emissive) m.emissiveColor = B.Color3.FromHexString(emissive);
+    return m;
+  };
+  const solid = (mesh, material) => { mesh.material = material; mesh.checkCollisions = true; return mesh; };
+
+  // Luces: ambiente tenue + lámpara cálida central (controlada por el interruptor)
+  const ambient = new B.HemisphericLight('ambient', new B.Vector3(0, 1, 0), scene);
+  ambient.intensity = 0.3; ambient.groundColor = new B.Color3(0.1, 0.06, 0.12);
+  const lamp = new B.PointLight('lamp', new B.Vector3(0, 2.7, 0), scene);
+  lamp.diffuse = new B.Color3(1, 0.78, 0.5); lamp.intensity = 0.9; lamp.range = 16;
+  const bulb = B.MeshBuilder.CreateSphere('bulb', { diameter: 0.3, segments: 8 }, scene);
+  bulb.material = mat('bulbMat', '#ffd9a0', '#ffd9a0'); bulb.isPickable = false;
+  bulb.position.set(0, 2.7, 0);
+
+  // Suelo con damero (para percibir el movimiento), paredes y techo
+  const tex = new B.DynamicTexture('checker', { width: 128, height: 128 }, scene, false);
+  const ctx = tex.getContext();
+  ctx.fillStyle = '#3b2a44'; ctx.fillRect(0, 0, 128, 128);
+  ctx.fillStyle = '#7a2f3a'; ctx.fillRect(0, 0, 64, 64); ctx.fillRect(64, 64, 64, 64);
+  tex.update(); tex.uScale = tex.vScale = 8;
+  const floorMat = mat('floorMat', '#ffffff'); floorMat.diffuseTexture = tex;
+  solid(B.MeshBuilder.CreateGround('floor', { width: 16, height: 16 }, scene), floorMat);
+
+  const wallMat = mat('wallMat', '#5a4a6a');
+  const wall = (name, w, h, d, x, y, z) => {
+    const m = solid(B.MeshBuilder.CreateBox(name, { width: w, height: h, depth: d }, scene), wallMat);
+    m.position.set(x, y, z);
+  };
+  wall('wallN', 16.8, 3.4, 0.4, 0, 1.7, 8.2); wall('wallS', 16.8, 3.4, 0.4, 0, 1.7, -8.2);
+  wall('wallE', 0.4, 3.4, 16, 8.2, 1.7, 0);   wall('wallW', 0.4, 3.4, 16, -8.2, 1.7, 0);
+  wall('ceiling', 16.8, 0.2, 16.8, 0, 3.5, 0);
+
+  // Obstáculos para probar colisiones
+  const colors = ['#c8423a', '#e0b030', '#2a9d8f'];
+  [[-3, 3], [3.5, 4], [-4.5, -3]].forEach(([x, z], i) => {
+    const b = solid(B.MeshBuilder.CreateBox('crate' + i, { size: 1.2 }, scene), mat('crateMat' + i, colors[i]));
+    b.position.set(x, 0.6, z); b.rotation.y = i * 0.6;
+  });
+  const pillar = solid(B.MeshBuilder.CreateCylinder('pillar', { diameter: 0.9, height: 3.4, tessellation: 16 }, scene), mat('pillarMat', '#8a7a9a'));
+  pillar.position.set(4.5, 1.7, -4);
+
+  // Objeto interactuable: interruptor que enciende/apaga la lámpara
+  const base = solid(B.MeshBuilder.CreateBox('switchBase', { width: 0.5, height: 1.0, depth: 0.5 }, scene), mat('switchBaseMat', '#4a3a58'));
+  base.position.set(2.5, 0.5, -1.5);
+  const knob = solid(B.MeshBuilder.CreateBox('switchKnob', { size: 0.3 }, scene), mat('switchKnobMat', '#222222', '#30d060'));
+  knob.position.set(2.5, 1.15, -1.5);
+  let on = true;
+  const sw = {
+    id: 'test-switch',
+    prompt: 'Accionar interruptor',
+    onInteract() {
+      on = !on;
+      lamp.intensity = on ? 0.9 : 0;
+      bulb.material.emissiveColor = on ? B.Color3.FromHexString('#ffd9a0') : B.Color3.Black();
+      knob.material.emissiveColor = B.Color3.FromHexString(on ? '#30d060' : '#d03030');
+      ui.message(on ? 'Luz encendida' : 'Luz apagada');
+      audio.blip(on ? 660 : 330);
+    },
+  };
+  interactions.register(base, sw);
+  interactions.register(knob, sw);
+
+  return { spawn: new B.Vector3(-5.5, 0, 5.5), spawnYaw: Math.atan2(1, -1) };
+}
+
+// ---- core/game ----
+// Orquestador: crea el motor, la escena y los sistemas, y gestiona el bucle principal y la pausa.
+
+
+
+
+
+
+
+
+class Game {
+  constructor(canvas) { this.canvas = canvas; this.paused = true; this._fpsT = 0; }
+
+  async _createEngine() {
+    const B = BABYLON, r = CONFIG.render;
+    const wantGPU = r.useWebGPU || new URLSearchParams(location.search).has('webgpu');
+    if (wantGPU && B.WebGPUEngine && (await B.WebGPUEngine.IsSupportedAsync)) {
+      const e = new B.WebGPUEngine(this.canvas, { antialias: r.antialias });
+      await e.initAsync();
+      return e;
+    }
+    return new B.Engine(this.canvas, r.antialias, { stencil: false }, true);
+  }
+
+  async start() {
+    const bus = (this.bus = new EventBus());
+    const input = (this.input = new Input(this.canvas, bus, CONFIG));
+    const ui = (this.ui = new UI(input.isTouch));
+    try {
+      if (!window.BABYLON) throw new Error('No se pudo cargar Babylon.js (revisa la conexión).');
+      const audio = (this.audio = new AudioManager(CONFIG.audio));
+      const engine = (this.engine = await this._createEngine());
+      engine.setHardwareScalingLevel(1 / Math.min(window.devicePixelRatio || 1, CONFIG.render.maxPixelRatio));
+      const scene = (this.scene = new BABYLON.Scene(engine));
+
+      this.player = new Player(scene, input, CONFIG);
+      this.interactions = new InteractionSystem(scene, this.player.camera, bus, CONFIG.interaction);
+      const world = createTestRoom(scene, { interactions: this.interactions, audio, ui, bus });
+      this.player.teleport(world.spawn, world.spawnYaw);
+
+      bus.on('interact:target', (t) => ui.setPrompt(t ? t.prompt : null));
+      bus.on('input:interact', () => { if (!this.paused) this.interactions.interact(); });
+      bus.on('pointer:unlocked', () => { if (!this.paused && !input.isTouch) this.pause(); });
+      ui.onPlay(() => this.resume());
+      ui.onPauseButton(() => this.pause());
+      window.addEventListener('blur', () => { if (!this.paused) this.pause(); });
+      window.addEventListener('resize', () => engine.resize());
+      window.addEventListener('orientationchange', () => setTimeout(() => engine.resize(), 250));
+
+      engine.runRenderLoop(() => {
+        const dt = Math.min(engine.getDeltaTime() / 1000, 0.05);
+        if (!this.paused) { this.player.update(dt); this.interactions.update(dt); }
+        scene.render();
+        this._fpsT += dt;
+        if (CONFIG.debug.showFps && this._fpsT > 0.5) { this._fpsT = 0; ui.setFps(Math.round(engine.getFps())); }
+      });
+      ui.showOverlay('NOISES', 'Base técnica · Etapa 1 (escenario de pruebas)');
+    } catch (err) {
+      console.error(err);
+      ui.fatal(err.message || String(err));
+    }
+  }
+
+  resume() {
+    this.audio.unlock();
+    this.paused = false;
+    this.input.setEnabled(true);
+    this.ui.hideOverlay();
+    if (!this.input.isTouch) this.input.lockPointer();
+    else this._lockLandscape();
+  }
+
+  // En móviles/tablets intenta pantalla completa + horizontal (no todos los navegadores lo permiten; en iOS se ignora).
+  _lockLandscape() {
+    const el = document.documentElement;
+    Promise.resolve(el.requestFullscreen?.())
+      .then(() => screen.orientation?.lock?.('landscape'))
+      .catch(() => {});
+  }
+
+  pause() {
+    this.paused = true;
+    this.input.setEnabled(false);
+    this.input.unlockPointer();
+    this.ui.setPrompt(null);
+    this.interactions.target = null;
+    this.ui.showOverlay('Pausa', 'El juego está en pausa', 'Continuar');
+  }
+}
+
+// ---- main ----
+
+new Game(document.getElementById('renderCanvas')).start();
+
+})();
+</script>
+</body>
+</html>
